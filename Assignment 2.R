@@ -12,7 +12,7 @@ library("dplyr")
 link = "http://www.ipaidabribe.com/reports/paid"      ## Definerer base-hjemmesiden ##
 
 loop <- list()                                        ## Genererer liste af pages (skal være 100)
-for(i in seq(from = 10, to = 20, by = 10)){           ## Looper. Tager kun hver 10'ende, som ipaidbribe.com
+for(i in seq(from = 10, to = 1000, by = 10)){           ## Looper. Tager kun hver 10'ende, som ipaidbribe.com
   loop[[i/10]] = print(paste("http://www.ipaidabribe.com/reports/paid?page=",i-10, sep="")) ## Skal starte på 0, som er side 1
 }
 
@@ -36,11 +36,16 @@ for (i in g.sider$links[1:nrow(g.sider)]){            ## Loop over den generered
   print(paste("processing", i, sep = " "))            ## Vis mig løbende processen  ##
   links.posts[[i]] = link.scraper(i)
   # waiting 10 seconds between hits - jf. deres robots.txt
-  Sys.sleep(10)
+  #Sys.sleep(10) -> Giver dubletter hvis den er her. Derfor bruges kun til scrape for data
   cat(" done!\n")
 } 
 
 dflinks=ldply(links.posts)                           ## Laver den om til et data frame
+
+## Gemmer liste med links og tidspunkt
+
+save(dflinks, file="dflinks.RData")
+save(start,file="start.RData")
 
 #### DONE ####
 
@@ -89,6 +94,7 @@ for (i in dflinks$my.link.text[1:nrow(dflinks)]){
 }
 data.frame=ldply(data.liste)
 
+save(data.frame,file="data.frama.RData")
 
 ###### STEP 3: Bearbejd og gem data ##################################################
 
@@ -105,3 +111,12 @@ data.frame.endelig = data.frame %>%
 # 2 Gemmer data
 
 save(data.frame.endelig,file = "data.frame.endelig.RData")
+
+## Test for duplicates - I alt er der 10 dubletter, hvorfor det endelige datasæt har 990 obs.
+
+dubletter =  dflinks %>%
+        group_by(my.link.text) %>%
+        filter(n() != 1)
+
+
+
