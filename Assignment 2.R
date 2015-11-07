@@ -12,7 +12,7 @@ library("dplyr")
 link = "http://www.ipaidabribe.com/reports/paid"      ## Definerer base-hjemmesiden ##
 
 loop <- list()                                        ## Genererer liste af pages (skal være 100)
-for(i in seq(from = 10, to = 1000, by = 10)){           ## Looper. Tager kun hver 10'ende, som ipaidbribe.com
+for(i in seq(from = 10, to = 1050, by = 10)){           ## Looper. Tager kun hver 10'ende, som ipaidbribe.com
   loop[[i/10]] = print(paste("http://www.ipaidabribe.com/reports/paid?page=",i-10, sep="")) ## Skal starte på 0, som er side 1
 }
 
@@ -89,7 +89,7 @@ for (i in dflinks$my.link.text[1:nrow(dflinks)]){
   print(paste("processing", i, sep = " "))
   data.liste[[i]] = data.scraper(i)
   # waiting 10 seconds between hits
-  Sys.sleep(10)
+  #Sys.sleep(10)
   cat(" done!\n")
 }
 data.frame=ldply(data.liste)
@@ -106,7 +106,8 @@ data.frame.endelig = data.frame %>%
                        views=as.numeric(str_replace_all(views,"[^0-9]","")),
                        my.date=as.Date(my.date,"%B %d, %Y"), # Om danner til datovariabel ved at oversætter opbygningen den angivede dato - se: https://stat.ethz.ch/R-manual/R-devel/library/base/html/strptime.html
                        start_scrape=start # Start tidspunkt for scrape til dokumentation
-                       ) 
+                       ) %>%
+                     filter(.id != "http://www.ipaidabribe.com/" ) # Fjerner obs der ikke er endelige
 
 # 2 Gemmer data
 
@@ -117,6 +118,10 @@ save(data.frame.endelig,file = "data.frame.endelig.RData")
 dubletter =  dflinks %>%
         group_by(my.link.text) %>%
         filter(n() != 1)
+
+dubletter2 =  data.frame.endelig %>%
+  group_by(.id) %>%
+  filter(n() != 1)
 
 
 
