@@ -1,0 +1,263 @@
+---
+title: "Assignment 2"
+author: "Group 25"
+date: "9. nov. 2015"
+output: html_document
+---
+
+In this assignment we are asked to scrape data from ipaidabribe.com
+
+```{r echo=FALSE}
+
+library("stringr")
+library("rvest")
+library("plyr")
+library("dplyr")
+library("ggplot2")
+library("lubridate")
+```
+
+Step 1:
+First we make a list of generic pages, one for each page shift.
+Afterwards we will scrape the links from each single post
+
+
+```{r}
+
+link = "http://www.ipaidabribe.com/reports/paid"      ## Definerer base-hjemmesiden ##
+
+loop <- list()                                        ## Genererer liste af pages (skal være 100)
+for(i in seq(from = 10, to = 1050, by = 10)){           ## Looper. Tager kun hver 10'ende, som ipaidbribe.com
+  loop[[i/10]] = print(paste("http://www.ipaidabribe.com/reports/paid?page=",i-10, sep="")) ## Skal starte på 0, som er side 1
+}
+
+g.sider = ldply(loop)                                 ## Fra vector til data frame
+names(g.sider) = c("links")                           ## Navngiver variablen
+
+## SCRAPE-FUNKTION: Scraper hvert link, på en given side, der har "read-more"-markøren ##
+link.scraper = function(link) {
+  my.link = read_html(link, encoding = "UTF-8")
+  my.link.text = my.link %>%                          ## Definér, then 
+    html_nodes("a.read-more") %>%                     ## Registrer hvert "Read more", then
+    html_attr('href')                                 ## Giv egenskab som link og træk link
+    return(cbind(my.link.text))                       ## Returnér det og tving det(/dem) til søjlebinding
+}
+
+
+## Opretter en liste og bruger funktionen over et loop af generiske bribe-sider. Funktionens udtræk gemmes i listen ##
+
+start = Sys.time()                                    ## Køres samtidigt med nedenfor. Dokumentation af                                                          ## tidspunktet på hvornår de 1000 seneste findes
+links.posts = list() # initialize empty list
+for (i in g.sider$links[1:nrow(g.sider)]){            ## Loop over den genererede liste ##
+  print(paste("processing", i, sep = " "))            ## Vis mig løbende processen  ##
+  links.posts[[i]] = link.scraper(i)
+  # waiting 10 seconds between hits - jf. deres robots.txt
+  #Sys.sleep(10) -> Giver dubletter hvis den er her. Derfor bruges kun til scrape for data
+  cat(" done!\n")
+} 
+
+dflinks=ldply(links.posts)                           ## Laver den om til et data frame
+
+## Gemmer liste med links og tidspunkt
+
+save(dflinks, file="dflinks.RData")
+save(start,file="start.RData")
+
+#### DONE ####
+```
+
+Step two: 
+We will now extract the information from the scraped links
+
+```{r}
+data.scraper = function(dflinks) {
+  my.link = read_html(dflinks, encoding = "UTF-8")
+  kategori = my.link %>%                            ## Henter post'ets kategori
+    html_nodes(".details .name a") %>% 
+    html_text()
+  kategori2 = my.link %>%                           ## Henter post'ets underkategori
+    html_nodes("div.report-listing.details li.transaction a") %>% 
+    html_text()
+  location = my.link %>%                            ## Henter byområde
+    html_nodes(".location") %>% 
+    html_text()
+  my.body = my.link %>%                             ## Henter hovedtekst          ##
+    html_nodes(".body-copy-lg") %>% 
+    html_text() %>%
+    paste(collapse = "")
+  my.titel = my.link %>%                            ## Henter overskrift          ##
+    html_nodes(".heading-3 a") %>% 
+    html_text()
+  my.date = my.link %>%                             ## Henter dato                ##
+    html_nodes(".date") %>%
+    html_text()
+  postnr = my.link %>%                              ## Henter nummer på post'et
+    html_nodes(".unique-reference") %>% 
+    html_text()
+  views = my.link %>%                               ## Henter antal views
+    html_nodes(".overview .views") %>% 
+    html_text()
+  betaling = my.link %>%                            ## Henter bestikkelsessum     ##
+    html_nodes("div.report-listing.details li.paid-amount span") %>% 
+    html_text()
+  return(cbind(kategori, kategori2, location, my.body, my.titel, my.date, postnr, views, betaling))
+}
+
+data.liste = list()
+for (i in dflinks$my.link.text[1:nrow(dflinks)]){
+  print(paste("processing", i, sep = " "))
+  data.liste[[i]] = data.scraper(i)
+  # waiting 10 seconds between hits
+  #Sys.sleep(10)
+  cat(" done!\n")
+}
+data.frame=ldply(data.liste)
+
+save(data.frame,file="data.frama.RData")
+```
+
+Finally we will rename, mutate and save the date. One problem we encountered was that as.Date uses the computers date format, so October returned NA. 
+```{r}
+
+# 1 Omdanner variable
+
+data.frame.endelig = data.frame %>%
+                     mutate(
+                       betaling=as.numeric(str_replace_all(betaling,"[^0-9]","")), # Fjerner alle ikke numeriske tegn og omdanner til tal
+                       views=as.numeric(str_replace_all(views,"[^0-9]","")),
+                       my.date=as.Date(str_replace_all(my.date,"October","Oktober"),"%B %d, %Y"), # Om danner til datovariabel ved at oversætter opbygningen den angivede dato - se: https://stat.ethz.ch/R-manual/R-devel/library/base/html/strptime.html
+                       start_scrape=start # Start tidspunkt for scrape til dokumentation
+                       ) %>%
+                     filter(.id != "http://www.ipaidabribe.com/" ) # Fjerner obs der ikke er endelige
+
+# 2 Gemmer data
+
+save(data.frame.endelig,file = "data.frame.endelig.RData")
+
+## Test for duplicates - I alt er der 10 dubletter, hvorfor det endelige datasæt har 990 obs.
+
+dubletter =  dflinks %>%
+        group_by(my.link.text) %>%
+        filter(n() != 1)
+
+dubletter2 =  data.frame.endelig %>%
+  group_by(.id) %>%
+  filter(n() != 1)
+
+df = data.frame.endelig
+
+df$city <- (str_split_fixed(df$location, ",", n=2)[,1])
+df$region <- (str_split_fixed(df$location, ",", n=2)[,2])
+
+```
+
+## Brief Data Analysis
+
+After running a summary in the console we notice that payments (betaling) has some huge outliears. Futhermore we notice that views and weekdays might also provide us with some interesting results.
+The outliers in payments are confirmed by a histogram.
+The solution is to filter out payments less than 1000000 Rp., approx 100000 kr.
+
+
+It seems unplausable that people would contribute information about bribes above this threshold, as it would be very easy for the bribed to indentify the briber. 
+
+For a longer study a discussion about the type of data (crowdsourced data) should be included.
+
+```{r echo=FALSE}
+
+p = ggplot(data = df, aes(x = betaling)) # data & aesthetics
+p = p + geom_histogram() #add geom
+p + scale_x_log10() #add log-scale
+
+#Shows us that we have some huge outliers.
+
+df2 = filter(df, betaling<1000000)
+
+p = ggplot(data = df2, aes(x = betaling)) # data & aesthetics
+p = p + geom_histogram() #add geom
+p + scale_x_log10() #add log-scale
+```
+
+To get an overview of the data, which consists of different character varibles we add short summary
+
+```{r echo=FALSE}
+regions = df2 %>%
+  filter(!is.na(region)) %>%
+  group_by(region) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+head(regions,n=5)
+
+branch = df2 %>%
+  filter(!is.na(kategori)) %>%
+  group_by(kategori) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+head(branch,n=5)
+
+type = df2 %>%
+  filter(!is.na(kategori2)) %>%
+  group_by(kategori2) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+head(type,n=5)
+
+countday = df2 %>%
+  filter(!is.na(weekday)) %>%
+  group_by(weekday) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+head(countday, n=5)
+
+```
+
+From the summaries we notice the following:
+  * There is a big spread in all 4 variables.
+  * E.g. types has Birth Certificates and Issue of Ration Card as the most observed variables.
+  * This might give us a clue on where to focus our attention when directing policy on the matter.
+  * Monday is by far the day with the most observations
+  
+
+We will try to look into the last bullet.
+Question begin.
+
+Why is monday the most observed weekday, with around six times more observations than the second most observed day.
+
+A reason could be that ration cards and birth certificates are primarily given out on mondays.
+Underneath we see that this is primarily the case with ration cards.
+Another reason could be, that if corruption occurs mostly in office hours, then there might be a peak after the weekends - the same reason that you should never call a hotline on mondays.
+
+```{r echo=FALSE}
+
+ration = filter(df2, kategori2 == "Issue of Ration Card") %>%
+  group_by(weekday) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+head(ration, n=7)
+
+birthcert = filter(df2, kategori2 == "Birth Certificate") %>%
+  group_by(weekday) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+head(birthcert, n=7)
+```
+
+
+We can draw the density functions divided on weekdays. This might provide us with further information.
+What we notice from the graph underneath is that payments on mondays also stand out here. They follow a density function which is very narrow around 1000. This could mean several things
+  *Either there could be someone trying to manipulate the data
+  *Or Monday might be better represented, catching up from the weekend.
+  
+Whatever the reason one will have to be creative to overcome the problems related to self-reported data. 
+  
+```{r echo=TRUE}
+df2$weekday = wday(df2$my.date, label = TRUE)
+
+p = ggplot(df2, aes(x = betaling, colour = weekday))
+p + geom_density() + scale_x_log10()
+```
+
+
